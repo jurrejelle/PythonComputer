@@ -1,6 +1,5 @@
 import subprocess,sys
 subprocess.call('',shell=True)
-success = True
 
 # Set up registers
 R1 = 0
@@ -13,11 +12,14 @@ SP = 6
 FP = 7
 REGS = ['R1','R2','R3','R4','ACC','IP', 'SP', 'FP']
 
+#Moving stuff around
+MOV_LIT_REG     = 0x10 # Move constant into register
+MOV_REG_REG     = 0x11 # Move register into register
+MOV_LIT_MEM     = 0x12 # Moves a literal value into memory
+MOV_REG_PTR_REG = 0x13 # Gets value from a pointer in a register, and moves into register
+MOV_LIT_OFF_REG = 0x14 # Move the value from [address + offset_in_register] into a register
 
-MOV_LIT_REG     = 0x11 # Move constant into register
-MOV_REG_REG     = 0x12 # Move register into register
-ADD_REG_REG     = 0x13 # Add values from registers together into ACC
-MOV_LIT_MEM     = 0x14 # Moves a literal value into memory
+#Stack functionality
 PUSH_LIT        = 0x20 # Push a literal value to the stack
 PUSH_REG        = 0x21 # Push a value from a register to the stack
 POP             = 0x22 # Pop a value from the stack
@@ -25,6 +27,47 @@ CALL_LIT        = 0x23 # Make a call to a function whose pointer is a literal
 CALL_REG        = 0x24 # Make a call to a function whose pointer comes from a register
 RET             = 0x25 # Return back from a call instruction
 HALT            = 0x26 # Halts the program
+
+#Arithmathic operations
+ADD_REG_REG     = 0x30 # Add values from registers together into ACC
+ADD_LIT_REG     = 0x31 # Add a literal value to a register into ACC
+SUB_LIT_REG     = 0x32 # Subtract a literal value from a register into ACC
+SUB_REG_LIT     = 0x33 # Subtract a register from a literal value into ACC
+SUB_REG_REG     = 0x34 # Subtract a register from a register into ACC
+MUL_LIT_REG     = 0x35 # Multiply a literal value by a register into ACC
+MUL_REG_REG     = 0x36 # Multiply a register by a register into ACC
+INC_REG         = 0x37 # Increment a register in place
+DEC_REG         = 0x38 # Decrement a register in place
+
+#Logical operations
+LSF_REG_LIT     = 0x40 # Left-shift a value in a regiser by a literal amount of bits
+LSF_REG_REG     = 0x41 # Left-shift a value in a regiser by an amount of bits from a register
+RSF_REG_LIT     = 0x42 # Right-shift a value in a regiser by a literal amount of bits
+RSF_REG_REG     = 0x43 # Right-shift a value in a regiser by an amount of bits from a register
+AND_REG_LIT     = 0x44 # Perform a bitwise AND with a register and a literal
+AND_REG_REG     = 0x45 # Perform a bitwise AND with a register and a register
+OR_REG_LIT      = 0x46 # Perform a bitwise OR with a register and a literal
+OR_REG_REG      = 0x47 # Perform a bitwise OR with a register and a register
+XOR_REG_LIT     = 0x48 # Perform a bitwise XOR with a register and a literal
+XOR_REG_REG     = 0x49 # Perform a bitwise XOR with a register and a register
+NOT             = 0x4a # Perform a bitwise NOT on a register
+
+#Conditional logic
+JNE_LIT         = 0x50 # Jump to address if literal value is not equal to the ACC
+JNE_REG         = 0x51 # Jump to address if value from register is not equal to the ACC
+JEQ_LIT         = 0x52 # Jump to address if literal value is equal to the ACC
+JEQ_REG         = 0x53 # Jump to address if value from register is equal to the ACC
+JLT_LIT         = 0x54 # Jump to address if literal value is less than the ACC
+JLT_REG         = 0x55 # Jump to address if value from register is less than the ACC
+JGT_LIT         = 0x56 # Jump to address if literal value is greater than the ACC
+JGT_REG         = 0x57 # Jump to address if value from register is greater than the ACC
+JLE_LIT         = 0x58 # Jump to address if literal value is less than or equal to the ACC
+JLE_REG         = 0x59 # Jump to address if value from register is less than or equal to the ACC
+JGE_LIT         = 0x5a # Jump to address if literal value is greater than or equal to the ACC
+JGE_REG         = 0x5b # Jump to address if value from register is greater than or equal to the ACC
+
+
+#Debug stuff
 PRINT_REGISTERS = 0xff # Print values of all registers
 
 # Quick shortcut for printing
@@ -261,17 +304,17 @@ class computer:
             reg1 = self.fetch()
             reg2 = self.fetch()
             self.setregister(reg2, self.getregister(reg1))
-        if(instruction == ADD_REG_REG):
-            reg1 = self.fetch()
-            reg2 = self.fetch()
-            value = self.getregister(reg1) + self.getregister(reg2)
-            self.setregister(ACC, value)
         if(instruction == MOV_LIT_MEM):
             value = self.fetch32()
             address = self.fetch32()
             self.memory[address] = value
-        if(instruction == PRINT_REGISTERS):
-            self.printallregisters();
+        if(instruction == MOV_REG_PTR_REG):
+            register_from = self.fetch()
+            register_to = self.fetch()
+            pointer = self.getregister(register_from)
+            value = self.fetch32at(pointer)
+            self.setregister(register_to, value)
+            
         if(instruction == PUSH_LIT):
             value = self.fetch32();
             self.push(value);
@@ -293,6 +336,197 @@ class computer:
             self.setregister(IP, jumpAddress);
         if(instruction == RET):
             self.popState();
+
+            
+        if(instruction == ADD_REG_REG):
+            reg1 = self.fetch()
+            reg2 = self.fetch()
+            value = self.getregister(reg1) + self.getregister(reg2)
+            self.setregister(ACC, value)
+        if(instruction == ADD_LIT_REG):
+            literal = self.fetch32()
+            reg = self.fetch()
+            regvalue = self.getregister(reg)
+            value = literal+regvalue
+            self.setregister(ACC, value)
+        if(instruction == SUB_LIT_REG):
+            literal = self.fetch32()
+            reg = self.fetch()
+            regvalue = self.getregister(reg)
+            value = regvalue-literal
+            self.setregister(ACC, value)
+        if(instruction == SUB_REG_LIT):
+            reg = self.fetch()
+            literal = self.fetch32()
+            regvalue = self.getregister(reg)
+            value = literal-regvalue
+            self.setregister(ACC, value)
+        if(instruction == SUB_REG_REG):
+            reg1 = self.fetch()
+            reg2 = self.fetch()
+            value = self.getregister(reg1) - self.getregister(reg2)
+            self.setregister(ACC, value)
+        if(instruction == MUL_LIT_REG):
+            literal = self.fetch32()
+            reg1 = self.fetch()
+            value = self.getregister(reg1) * literal
+            self.setregister(ACC, value)
+        if(instruction == MUL_REG_REG):
+            reg1 = self.fetch()
+            reg2 = self.fetch()
+            value = self.getregister(reg1) * self.getregister(reg2)
+            self.setregister(ACC, value)
+        if(instruction == INC_REG):
+            reg = self.fetch() 
+            self.setregister(reg, self.getregister(reg)+1)
+        if(instruction == DEC_REG):
+            reg = self.fetch() 
+            self.setregister(reg, self.getregister(reg)-1)
+
+        if(instruction == LSF_REG_LIT):
+            reg = self.fetch()
+            lit = self.fetch()
+            regvalue = self.getregister(reg)
+            value = regvalue << lit
+            self.setregister(reg, value)
+        if(instruction == LSF_REG_REG):
+            reg1 = self.fetch()
+            reg2 = self.fetch()
+            regvalue1 = self.getregister(reg)
+            regvalue2 = self.getregister(reg)
+            value = regvalue1 << regvalue2
+            self.setregister(reg1, value)
+        if(instruction == RSF_REG_LIT):
+            reg = self.fetch()
+            lit = self.fetch()
+            regvalue = self.getregister(reg)
+            value = regvalue >> lit
+            self.setregister(reg, value)
+        if(instruction == RSF_REG_REG):
+            reg1 = self.fetch()
+            reg2 = self.fetch()
+            regvalue1 = self.getregister(reg)
+            regvalue2 = self.getregister(reg)
+            value = regvalue1 >> regvalue2
+            self.setregister(reg1, value)
+        if(instruction == AND_REG_LIT):
+            reg = self.fetch()
+            lit = self.fetch32()
+            regvalue = self.getregister(reg)
+            value = regvalue & lit
+            self.setregister(ACC, value)
+        if(instruction == AND_REG_REG):
+            reg1 = self.fetch()
+            reg2 = self.fetch()
+            regvalue1 = self.getregister(reg)
+            regvalue2 = self.getregister(reg)
+            value = regvalue1 & regvalue2
+            self.setregister(ACC, value)
+        if(instruction == OR_REG_LIT):
+            reg = self.fetch()
+            lit = self.fetch32()
+            regvalue = self.getregister(reg)
+            value = regvalue | lit
+            self.setregister(ACC, value)
+        if(instruction == OR_REG_REG):
+            reg1 = self.fetch()
+            reg2 = self.fetch()
+            regvalue1 = self.getregister(reg)
+            regvalue2 = self.getregister(reg)
+            value = regvalue1 | regvalue2
+            self.setregister(ACC, value)
+        if(instruction == XOR_REG_LIT):
+            reg = self.fetch()
+            lit = self.fetch32()
+            regvalue = self.getregister(reg)
+            value = regvalue ^ lit
+            self.setregister(ACC, value)
+        if(instruction == XOR_REG_REG):
+            reg1 = self.fetch()
+            reg2 = self.fetch()
+            regvalue1 = self.getregister(reg)
+            regvalue2 = self.getregister(reg)
+            value = regvalue1 ^ regvalue2
+            self.setregister(ACC, value)
+        if(instruction == NOT):
+            reg = self.fetch()
+            regvalue = self.getregister(reg)
+            value = ~regvalue
+            mask = 0xFFFFFFFF
+            value = value & mask
+            self.setregister(ACC, value)
+
+        if(instruction == JNE_REG):
+            reg = self.fetch()
+            address = self.fetch32()
+            regvalue = self.getregister(reg)
+            if(regvalue != this.getregister(ACC)):
+                self.setregister(IP, address)
+        if(instruction == JNE_LIT):
+            lit = self.fetch32()
+            address = self.fetch32()
+            if(lit != this.getregister(ACC)):
+                self.setregister(IP, address)
+        if(instruction == JEQ_REG):
+            reg = self.fetch()
+            address = self.fetch32()
+            regvalue = self.getregister(reg)
+            if(regvalue == this.getregister(ACC)):
+                self.setregister(IP, address)
+        if(instruction == JEQ_LIT):
+            lit = self.fetch32()
+            address = self.fetch32()
+            if(lit == this.getregister(ACC)):
+                self.setregister(IP, address)
+        if(instruction == JGT_REG):
+            reg = self.fetch()
+            address = self.fetch32()
+            regvalue = self.getregister(reg)
+            if(regvalue > this.getregister(ACC)):
+                self.setregister(IP, address)
+        if(instruction == JGT_LIT):
+            lit = self.fetch32()
+            address = self.fetch32()
+            if(lit > this.getregister(ACC)):
+                self.setregister(IP, address)
+        if(instruction == JLT_REG):
+            reg = self.fetch()
+            address = self.fetch32()
+            regvalue = self.getregister(reg)
+            if(regvalue < this.getregister(ACC)):
+                self.setregister(IP, address)
+        if(instruction == JLT_LIT):
+            lit = self.fetch32()
+            address = self.fetch32()
+            if(lit < this.getregister(ACC)):
+                self.setregister(IP, address)
+        if(instruction == JGE_REG):
+            reg = self.fetch()
+            address = self.fetch32()
+            regvalue = self.getregister(reg)
+            if(regvalue >= this.getregister(ACC)):
+                self.setregister(IP, address)
+        if(instruction == JGE_LIT):
+            lit = self.fetch32()
+            address = self.fetch32()
+            if(lit >= this.getregister(ACC)):
+                self.setregister(IP, address)
+        if(instruction == JLE_REG):
+            reg = self.fetch()
+            address = self.fetch32()
+            regvalue = self.getregister(reg)
+            if(regvalue <= this.getregister(ACC)):
+                self.setregister(IP, address)
+        if(instruction == JLE_LIT):
+            lit = self.fetch32()
+            address = self.fetch32()
+            if(lit <= this.getregister(ACC)):
+                self.setregister(IP, address)
+            
+
+            
+        if(instruction == PRINT_REGISTERS):
+            self.printallregisters();
         if(instruction == HALT):
             return True
         return False
