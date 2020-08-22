@@ -1,3 +1,7 @@
+import subprocess,sys
+subprocess.call('',shell=True)
+success = True
+
 # Set up registers
 R1 = 0
 R2 = 1
@@ -10,31 +14,139 @@ FP = 7
 REGS = ['R1','R2','R3','R4','ACC','IP', 'SP', 'FP']
 
 
-MOV_LIT_REG   = 0x11 # Move constant into register
+MOV_LIT_REG     = 0x11 # Move constant into register
 MOV_REG_REG     = 0x12 # Move register into register
 ADD_REG_REG     = 0x13 # Add values from registers together into ACC
-PRINT_REGISTERS = 0x14 # Print values of all registers
-PUSH_LIT        = 0x15 # Push a literal value to the stack
-PUSH_REG        = 0x16 # Push a value from a register to the stack
-POP             = 0x17 # Pop a value from the stack
-CALL_LIT        = 0x18 # Make a call to a function whose pointer is a literal
-CALL_REG        = 0x19 # Make a call to a function whose pointer comes from a register
-RET             = 0x20 # Return back from a call instruction
+MOV_LIT_MEM     = 0x14 # Moves a literal value into memory
+PUSH_LIT        = 0x20 # Push a literal value to the stack
+PUSH_REG        = 0x21 # Push a value from a register to the stack
+POP             = 0x22 # Pop a value from the stack
+CALL_LIT        = 0x23 # Make a call to a function whose pointer is a literal
+CALL_REG        = 0x24 # Make a call to a function whose pointer comes from a register
+RET             = 0x25 # Return back from a call instruction
+HALT            = 0x26 # Halts the program
+PRINT_REGISTERS = 0xff # Print values of all registers
 
-#Quick shortcut for printing
+# Quick shortcut for printing
 def p(inp):
     print(hex(inp))
 
-#The entire computer class
-class computer:
+# Define a custom exception for in the memorymapper class
+class AddressNotFoundException(Exception):
+    pass
+
+# Define the memorymapper class
+class MemoryMapper:
     def __init__(self):
+        self.regions = [];
+
+    # The function to add a memorymap
+    def map(self,device, start, end, remap = False):
+        region = [device, start, end, remap]
+        self.regions.insert(0,region)
+
+    # a quick shortcut for finding which region an address is in
+    def findregion(self, address):
+        found = []
+        for x in self.regions:
+            if(address >= x[1] and address <= x[2]):
+                found = x
+                break
+        if(not(found)):
+            raise AddressNotFoundException
+        return found
+
+    # Editing the function for getting via [] for the class
+    def __getitem__(self, address):
+        region = self.findregion(address)
+        if(region[3]):
+            # Remap the address by subtracting the base of the region
+            address = address - region[1]
+        return region[0][address]
+
+    # Editing the function for setting via [] for the class
+    def __setitem__(self, address, value):
+        region = self.findregion(address)
+        if(region[3]):
+            # Remap the address by subtracting the base of 
+            address = address - region[1]
+        region[0][address] = value
+
+# Creating a quick screen class to play around with
+class Screen:
+    def __init__(self):
+        pass
+    #Function for printing a character to the screen properly
+    def print(self,val):
+        sys.stdout.write(chr(val))
+        sys.stdout.flush()
+    # Function to move the cursor to an x,y coordinate
+    def moveTo(self,x,y):
+        sys.stdout.write('\x1b['+str(x)+';'+str(y)+'H')
+
+    # Function to set the text to bold
+    def setBold(self):
+        sys.stdout.write('\x1b[1m')
+
+    # Function to set text color to red
+    def setRed(self):
+        sys.stdout.write('\x1b[31m')
+
+    #Function to set text formatting back to normal
+    def setRegular(self):
+        sys.stdout.write('\x1b[0m')
+
+    #Function to clear the screen
+    def clearScreen(self):
+        #The ANSI clear screen shortcut didn't work, so this has to do for now
+        for x in range(0, 100):
+            for y in range(0, 100):
+                self.moveTo(x,y)
+                self.print(0x20)
+                
+    def __getitem__(self, address):
+        return 0
+
+    # Writing to the screen is like writing to an array
+    # The value you write to it is composed for 4 bytes, namely:
+    # xx000000 - The character
+    # 00xx0000 - The x position
+    # 0000xx00 - The y position
+    # 000000xx - The command 
+    def __setitem__(self, address, value):
+        character = (value & 0xff000000) >> 24
+        xpos      = (value & 0x00ff0000) >> 16
+        ypos      = (value & 0x0000ff00) >> 8
+        command   = (value & 0x000000ff)
+        
+        self.moveTo(ypos, xpos*2+1)
+        if(command==0x01):
+            self.clearScreen()
+        if(command==0x02):
+            self.setBold()
+        if(command==0x03):
+            self.setRegular();
+        if(command==0x04):
+            self.setRed();
+        if(command==0xff):
+            self.clearScreen();
+        sys.stdout.write(chr(character))
+        sys.stdout.flush()
+
+# The main class for the computer
+# This is where most of the magic happens
+class computer:
+    def __init__(self, memoryMap):
         # Create a memory region for the registers
         # a 32 bit field (4 bytes) for every register
         self.registers = bytearray(len(REGS) * 4);
-        # Create the RAM
-        self.memory = bytearray(512)
+        # Assign the memoryMap to memory
+        self.memory = memoryMap
 
+        self.debug = False
 
+        self.halt = False
+        
         self.setregister(SP, 512-4)
         self.setregister(FP, 512-4)
         self.stackFrameSize = 0;
@@ -154,6 +266,10 @@ class computer:
             reg2 = self.fetch()
             value = self.getregister(reg1) + self.getregister(reg2)
             self.setregister(ACC, value)
+        if(instruction == MOV_LIT_MEM):
+            value = self.fetch32()
+            address = self.fetch32()
+            self.memory[address] = value
         if(instruction == PRINT_REGISTERS):
             self.printallregisters();
         if(instruction == PUSH_LIT):
@@ -177,45 +293,63 @@ class computer:
             self.setregister(IP, jumpAddress);
         if(instruction == RET):
             self.popState();
+        if(instruction == HALT):
+            return True
+        return False
             
     # Fetch and execute the next instruction
     def step(self):
         instruction = self.fetch();
-        p(instruction)
+        if(self.debug):
+            p(instruction)
         return self.execute(instruction);
+    # Main loop of the program
+    def run(self):
+        while not self.halt:
+            self.halt = self.step()
+        print('\r\n\r\ndone')
 
+# Create and assign memory regions to the program
+MemoryMap = MemoryMapper()
+MemoryMap.map(bytearray(0x10000),0,0x10000,False)
+my_screen = Screen()
+MemoryMap.map(my_screen,0x9000,0x9100,False)
 
+my_computer = computer(MemoryMap)
 
-my_computer = computer()
 # Create the buffer with all the "code" in it
-buffer = [PUSH_LIT, 0x41,0x41,0x41,0x41,
-          PUSH_LIT, 0x42,0x42,0x42,0x42,
-          PUSH_LIT, 0x43,0x43,0x43,0x43,
-          
-          PUSH_LIT,0x00,0x00,0x00,0x03,
-          
-          CALL_LIT,0x00,0x00,0x01,0x00,
-          PRINT_REGISTERS
-          ]
+buffer = []
 
+#Function to add the call to write a character to a string, to the buffer
+def writeCharToScreen(char, x, y, command=0):
+    temp = [MOV_LIT_MEM,char,x,y,command,0x00,0x00,0x90,0x00]
+    for t in temp:
+        buffer.append(t)
 
-buffer2 = [RET]
+#Clear the screen
+writeCharToScreen(0x20,0,0,0xff)
+
+#Write a pattern with A's to the screen
+c = 1
+for x in range(0, 16):
+    for y in range(0, 16):
+        if(c):
+            writeCharToScreen(0x41,x,y,4)
+        else:
+            writeCharToScreen(0x41,x,y,3)
+        c=1-c
+        
+buffer += [HALT]
 
 #Upload code at position 0
 my_computer.upload_at_location(0,buffer)
-my_computer.upload_at_location(0x100,buffer2)
 
 # Step through the code one step at a time
-while 1:
-    my_computer.step()
-    i = input('>');
-    if(len(i)>0):
-        if(i=='a'):
-            my_computer.printallregisters()
-        if(i[0]=='m'):
-            print(my_computer.memory)
-        if(i[0]=='s'):
-            print("STACK:")
-            for x in range(my_computer.getregister(SP),508,4):
-                print(hex(my_computer.fetch32at(x+4)))
-            print("\n")
+my_computer.run()
+
+
+my_screen.setRegular()
+while 1: pass
+
+
+
