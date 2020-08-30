@@ -18,6 +18,8 @@ MOV_REG_REG     = 0x11 # Move register into register
 MOV_LIT_MEM     = 0x12 # Moves a literal value into memory
 MOV_REG_PTR_REG = 0x13 # Gets value from a pointer in a register, and moves into register
 MOV_LIT_OFF_REG = 0x14 # Move the value from [address + offset_in_register] into a register
+MOV_REG_MEM     = 0X15 # Move a value from a register into memory
+MOV_REG_OFF_MEM = 0x16 # Move a value from a register into [address + offset_in_register]
 
 #Stack functionality
 PUSH_LIT        = 0x20 # Push a literal value to the stack
@@ -65,7 +67,7 @@ JLE_LIT         = 0x58 # Jump to address if literal value is less than or equal 
 JLE_REG         = 0x59 # Jump to address if value from register is less than or equal to the ACC
 JGE_LIT         = 0x5a # Jump to address if literal value is greater than or equal to the ACC
 JGE_REG         = 0x5b # Jump to address if value from register is greater than or equal to the ACC
-
+JMP             = 0X5c # Jump to address
 
 #Debug stuff
 PRINT_REGISTERS = 0xff # Print values of all registers
@@ -250,6 +252,7 @@ class computer:
         self.memory[location+1] = int(values[1],16)
         self.memory[location+2] = int(values[2],16)
         self.memory[location+3] = int(values[3],16)
+        
     # Push a 32 bit value to the stack
     def push(self, value):
         spAddress = self.getregister(SP);
@@ -314,7 +317,19 @@ class computer:
             pointer = self.getregister(register_from)
             value = self.fetch32at(pointer)
             self.setregister(register_to, value)
-            
+        if(instruction == MOV_REG_MEM):
+            register_from = self.fetch()
+            memory_to = self.fetch32()
+            value = self.getregister(register_from)
+            self.write32(memory_to, value)
+        if(instruction == MOV_REG_OFF_MEM):
+            register_from = self.fetch()
+            address_to = self.fetch32()
+            register_offset = self.fetch()
+            offset = self.getregister(register_offset)
+            new_address = address_to + offset
+            self.write32(new_address, self.getregister(register_from))
+        
         if(instruction == PUSH_LIT):
             value = self.fetch32();
             self.push(value);
@@ -522,6 +537,9 @@ class computer:
             address = self.fetch32()
             if(lit <= this.getregister(ACC)):
                 self.setregister(IP, address)
+        if(instruction == JMP):
+            address = self.fetch32()
+            self.setregister(IP, address)
             
 
             
@@ -542,6 +560,7 @@ class computer:
         while not self.halt:
             self.halt = self.step()
         print('\r\n\r\ndone')
+
 
 # Create and assign memory regions to the program
 MemoryMap = MemoryMapper()
